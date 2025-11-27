@@ -2,6 +2,7 @@
 Simple demo script for Riva AI - ADK version.
 """
 from agents import run_aura_orchestrator
+from core.config import STUDENT_EMAILS
 
 
 def main():
@@ -11,7 +12,7 @@ def main():
     print("=" * 60)
     print()
     
-    student_id = "rutvi"
+    student_id = STUDENT_EMAILS[0]
     print(f"Running Aura orchestrator for student: {student_id}")
     print()
     

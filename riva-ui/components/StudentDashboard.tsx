@@ -17,6 +17,7 @@ type PlanItem = {
     title: string;
     subject: string;
     difficulty_tag: string;
+    due?: string;
 };
 
 type AuraResponse = {
@@ -27,6 +28,7 @@ type AuraResponse = {
 export default function StudentDashboard() {
     const [data, setData] = useState<AuraResponse | null>(null);
     const [loading, setLoading] = useState(true);
+    const [pastDueDays, setPastDueDays] = useState(30);
     const [studentId, setStudentId] = useState("demo-student");
 
     useEffect(() => {
@@ -54,6 +56,19 @@ export default function StudentDashboard() {
         fetchData();
     }, [studentId]);
 
+    // Helper to check if date is > pastDueDays old
+    const isOld = (dateStr?: string) => {
+        if (!dateStr || dateStr === "No due date") return false;
+        const due = new Date(dateStr);
+        const today = new Date();
+        const diffTime = today.getTime() - due.getTime();
+        const diffDays = diffTime / (1000 * 3600 * 24);
+        return diffDays > pastDueDays;
+    };
+
+    const currentAssignments = data?.assignments?.filter((a) => !isOld(a.due)) || [];
+    const oldAssignments = data?.assignments?.filter((a) => isOld(a.due)) || [];
+
     return (
         <div style={{ display: "grid", gap: "1.5rem", gridTemplateColumns: "2fr 1.5fr" }}>
             <div>
@@ -77,16 +92,16 @@ export default function StudentDashboard() {
                                 {item.time} – {item.title}
                             </div>
                             <div style={{ fontSize: "0.85rem", opacity: 0.8 }}>
-                                {item.subject} • {item.difficulty_tag}
+                                {item.subject} • {item.difficulty_tag} {item.due ? `• Due ${item.due}` : ""}
                             </div>
                         </div>
                     ))}
 
                 <h3 style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
-                    All Assignments
+                    Current Assignments
                 </h3>
                 {!loading &&
-                    data?.assignments?.map((a) => (
+                    currentAssignments.map((a) => (
                         <div
                             key={a.id}
                             style={{
@@ -104,6 +119,52 @@ export default function StudentDashboard() {
 
             <div>
                 <HintPanel />
+
+                <div style={{ marginTop: "2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                        <h3 style={{ fontSize: "1.1rem", color: "#9CA3AF", margin: 0 }}>
+                            Past Due
+                        </h3>
+                        <div style={{ fontSize: "0.85rem", color: "#9CA3AF" }}>
+                            {"> "}
+                            <input
+                                type="number"
+                                value={pastDueDays}
+                                onChange={(e) => setPastDueDays(Number(e.target.value))}
+                                style={{
+                                    width: "3rem",
+                                    background: "#1F2937",
+                                    border: "1px solid #374151",
+                                    color: "white",
+                                    borderRadius: "4px",
+                                    padding: "0.1rem 0.3rem",
+                                    textAlign: "center"
+                                }}
+                            />
+                            {" days"}
+                        </div>
+                    </div>
+
+                    {oldAssignments.length === 0 && (
+                        <p style={{ fontSize: "0.85rem", color: "#6B7280" }}>No assignments found.</p>
+                    )}
+
+                    {oldAssignments.map((a) => (
+                        <div
+                            key={a.id}
+                            style={{
+                                borderBottom: "1px solid #374151",
+                                padding: "0.5rem 0",
+                                opacity: 0.6,
+                            }}
+                        >
+                            <div style={{ fontWeight: 500, fontSize: "0.9rem" }}>{a.title}</div>
+                            <div style={{ fontSize: "0.8rem" }}>
+                                {a.subject} • Due {a.due}
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     );

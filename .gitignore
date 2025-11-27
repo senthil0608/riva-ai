@@ -27,14 +27,20 @@ Thumbs.db
 # Google Classroom OAuth
 credentials.json
 token.pickle
+token*.pickle
 
 # Logs
 *.log
+response*.json
+ids*.txt
 
 # Build
 dist/
 build/
 *.egg-info/
+
+# agent
+core/config.py
 
 # Next.js
 riva-ui/.next/

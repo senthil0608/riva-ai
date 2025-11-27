@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./credentials.json:/app/credentials.json
+      - ./token_nakshatra_bonda_gmail_com.pickle:/app/token_nakshatra_bonda_gmail_com.pickle
+      - ./token_nakshatra_bonda_myabcusd_org.pickle:/app/token_nakshatra_bonda_myabcusd_org.pickle
+      - ./.env:/app/.env
+    environment:
+      - PORT=8000
+      - GOOGLE_CLASSROOM_CREDENTIALS=credentials.json
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - STUDENT_NAME=${STUDENT_NAME}
+      - STUDENT_EMAILS=${STUDENT_EMAILS}
+      - PARENT_EMAILS=${PARENT_EMAILS}
+
+  frontend:
+    build:
+      context: ./riva-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - AURA_BACKEND_URL=http://backend:8000/aura
+    depends_on:
+      - backend

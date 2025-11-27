@@ -5,19 +5,24 @@ Creates personalized daily schedules using Gemini LLM.
 from typing import Dict, Any, List
 import os
 import sys
+import json
+import re
 
 # Import MCP
-import asyncio
-import os
-import ast
-import time
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+try:
+    import asyncio
+    import os
+    import ast
+    import time
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    from tools.calendar_mapper_tool import get_available_time_slots
 
 # Import observability
 from core.observability import logger, tracer
-
-
 
 
 def run_daily_planner(
@@ -39,58 +44,172 @@ def run_daily_planner(
     """
     slots = []
     
-    async def fetch_slots_mcp():
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "tools.calendar_mapper_server"],
-            env=os.environ.copy()
-        )
-        
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                
-                tool_name = "get_available_time_slots"
-                tool_args = {"student_id": student_id}
-                
-                logger.log_tool_call(tool_name, tool_args, "daily_planner")
-                
-                with tracer.trace_span(f"tool.{tool_name}") as span:
-                    start_ts = time.time()
-                    try:
-                        result = await session.call_tool(
-                            tool_name,
-                            arguments=tool_args
-                        )
-                        duration = (time.time() - start_ts) * 1000
-                        logger.log_tool_result(tool_name, duration, True)
-                        
-                        if result.content and hasattr(result.content[0], "text"):
-                            return ast.literal_eval(result.content[0].text)
-                        return []
-                    except Exception as e:
-                        duration = (time.time() - start_ts) * 1000
-                        logger.log_tool_result(tool_name, duration, False, str(e))
-                        raise
-    
-    try:
-        slots = asyncio.run(fetch_slots_mcp())
-    except Exception as e:
-        print(f"Error calling MCP tool: {e}")
-        slots = []
+    if MCP_AVAILABLE:
+        async def fetch_slots_mcp():
+            server_params = StdioServerParameters(
+                command=sys.executable,
+                args=["-m", "tools.calendar_mapper_server"],
+                env=os.environ.copy()
+            )
             
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    
+                    tool_name = "get_available_time_slots"
+                    tool_args = {"student_id": student_id}
+                    
+                    logger.log_tool_call(tool_name, tool_args, "daily_planner")
+                    
+                    with tracer.trace_span(f"tool.{tool_name}") as span:
+                        start_ts = time.time()
+                        try:
+                            result = await session.call_tool(
+                                tool_name,
+                                arguments=tool_args
+                            )
+                            duration = (time.time() - start_ts) * 1000
+                            logger.log_tool_result(tool_name, duration, True)
+                            
+                            if result.content and hasattr(result.content[0], "text"):
+                                return ast.literal_eval(result.content[0].text)
+                            return []
+                        except Exception as e:
+                            duration = (time.time() - start_ts) * 1000
+                            logger.log_tool_result(tool_name, duration, False, str(e))
+                            raise
+        
+        try:
+            slots = asyncio.run(fetch_slots_mcp())
+        except Exception as e:
+            print(f"Error calling MCP tool: {e}")
+            slots = []
+    else:
+        # Fallback to direct call
+        print("MCP not available, calling tool directly.")
+        try:
+            slots = get_available_time_slots(student_id)
+        except Exception as e:
+            print(f"Error calling tool directly: {e}")
+            slots = []
+            
+    # Prioritize assignments
+    prioritized_assignments = prioritize_assignments(assignments, student_id)
+    
     daily_plan = []
-    for i, assignment in enumerate(assignments[:len(slots)]):
+    # Use prioritized assignments for the plan
+    for i, assignment in enumerate(prioritized_assignments[:len(slots)]):
         difficulty_tag = skill_profile.get(assignment.get("subject", ""), "on_track")
         daily_plan.append({
             "time": slots[i],
             "task_id": assignment["id"],
             "title": assignment["title"],
             "subject": assignment["subject"],
-            "difficulty_tag": difficulty_tag
+            "difficulty_tag": difficulty_tag,
+            "due": assignment.get("due") # Add due date to plan
         })
     
-    return {"daily_plan": daily_plan}
+    return {
+        "daily_plan": daily_plan,
+        "prioritized_assignments": prioritized_assignments
+    }
+
+
+def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -> List[Dict[str, Any]]:
+    """
+    Prioritize assignments using Gemini LLM based on complexity and due date.
+    
+    Args:
+        assignments: List of assignments
+        student_id: Student ID
+        
+    Returns:
+        List of assignments sorted by priority
+    """
+    # Baseline sort by due date (soonest first)
+    assignments.sort(key=lambda x: x.get('due') or '9999-99-99')
+    
+    try:
+        import google.generativeai as genai
+        from datetime import datetime
+        
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            logger.warning("GOOGLE_API_KEY not found, skipping smart prioritization")
+            return assignments
+            
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-flash-latest')
+        
+        # Mock calendar events for context
+        calendar_events = [
+            "Soccer Practice: 4:00 PM - 6:00 PM",
+            "Dinner: 6:30 PM - 7:00 PM"
+        ]
+        
+        # Log initial order
+        logger.info(f"Initial top 3: {[a['title'] for a in assignments[:3]]}")
+        
+        prompt = f"""
+        You are an expert student planner. Re-order the following assignments list to optimize for the student's schedule and success.
+        
+        Context:
+        - Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        - Calendar Events today: {', '.join(calendar_events)}
+        
+        Assignments (currently sorted by due date):
+        {json.dumps([{k: v for k, v in a.items() if k in ['id', 'title', 'subject', 'due', 'description']} for a in assignments])}
+        
+        Task:
+        Return the SAME list of assignments, but re-ordered based on "Priority to Start".
+        
+        Prioritization Rules:
+        1.  **Urgency**: Assignments due today or tomorrow MUST be at the top.
+        2.  **Complexity**: Among urgent tasks, put harder/longer ones first (while the student has energy).
+        3.  **Quick Wins**: If a task is very short and due soon, slot it in to build momentum.
+        
+        Output Format:
+        Return ONLY the valid JSON array of assignment objects. Do not wrap in markdown code blocks.
+        """
+        
+        response = model.generate_content(prompt)
+        
+        # Extract JSON from response
+        text = response.text
+        # Clean up markdown if present
+        text = text.replace('```json', '').replace('```', '').strip()
+        
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            prioritized_partial = json.loads(json_str)
+            
+            # Map back to full assignment objects (in case LLM dropped fields)
+            # Create a dict of id -> full_assignment
+            assignment_map = {a['id']: a for a in assignments}
+            
+            final_list = []
+            seen_ids = set()
+            
+            for p in prioritized_partial:
+                if 'id' in p and p['id'] in assignment_map:
+                    final_list.append(assignment_map[p['id']])
+                    seen_ids.add(p['id'])
+            
+            # Append any missing assignments (fallback)
+            for a in assignments:
+                if a['id'] not in seen_ids:
+                    final_list.append(a)
+            
+            logger.info(f"Prioritized top 3: {[a['title'] for a in final_list[:3]]}")
+            return final_list
+        else:
+            logger.warning("Could not parse LLM response for prioritization")
+            return assignments
+            
+    except Exception as e:
+        logger.error(f"Error in smart prioritization: {e}")
+        return assignments
 
 
 

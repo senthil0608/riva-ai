@@ -24,17 +24,23 @@ from core.observability import logger, tracer, metrics
 # Google Classroom API scopes
 SCOPES = [
     'https://www.googleapis.com/auth/classroom.courses.readonly',
+    'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
     'https://www.googleapis.com/auth/classroom.coursework.students.readonly',
-    'https://www.googleapis.com/auth/classroom.rosters.readonly'
+    'https://www.googleapis.com/auth/classroom.rosters.readonly',
+    'https://www.googleapis.com/auth/classroom.student-submissions.students.readonly'
 ]
 
 
-def get_classroom_service():
+def get_classroom_service(student_email: Optional[str] = None):
     """
     Authenticate and return Google Classroom API service.
     
-    Uses OAuth 2.0 flow with credentials stored in token.pickle.
+    Uses OAuth 2.0 flow with credentials stored in token_{email}.pickle.
     First time requires user authentication via browser.
+    
+    Args:
+        student_email: The email of the student to authenticate.
+                      If None, uses default 'token.pickle'.
     
     Returns:
         Google Classroom API service object or None if auth fails
@@ -43,7 +49,14 @@ def get_classroom_service():
         return None
     
     creds = None
-    token_path = 'token.pickle'
+    
+    # Determine token path based on email
+    if student_email:
+        sanitized_email = student_email.replace('@', '_').replace('.', '_')
+        token_path = f'token_{sanitized_email}.pickle'
+    else:
+        token_path = 'token.pickle'
+        
     credentials_path = os.getenv('GOOGLE_CLASSROOM_CREDENTIALS', 'credentials.json')
     
     # Load existing credentials
@@ -54,7 +67,7 @@ def get_classroom_service():
     # Refresh or get new credentials
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            logger.info("Refreshing Google Classroom credentials")
+            logger.info(f"Refreshing Google Classroom credentials for {student_email}")
             creds.refresh(Request())
         else:
             if not os.path.exists(credentials_path):
@@ -65,16 +78,16 @@ def get_classroom_service():
                 )
                 return None
             
-            logger.info("Starting Google Classroom OAuth flow")
+            logger.info(f"Starting Google Classroom OAuth flow for {student_email}")
             flow = InstalledAppFlow.from_client_secrets_file(
                 credentials_path, SCOPES
             )
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=8080)
         
         # Save credentials
         with open(token_path, 'wb') as token:
             pickle.dump(creds, token)
-        logger.info("Google Classroom credentials saved")
+        logger.info(f"Google Classroom credentials saved to {token_path}")
     
     try:
         service = build('classroom', 'v1', credentials=creds)
@@ -99,7 +112,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
     
     with metrics.track_tool("list_assignments_for_student"):
         try:
-            service = get_classroom_service()
+            service = get_classroom_service(student_id)
             
             if not service:
                 # Fallback to mock data
@@ -131,7 +144,23 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                     
                     coursework_items = coursework_result.get('courseWork', [])
                     
+                    # Fetch student submissions to check status
+                    submissions_result = service.courses().courseWork().studentSubmissions().list(
+                        courseId=course_id,
+                        courseWorkId='-', # '-' means all coursework
+                        userId=student_id
+                    ).execute()
+                    submissions = submissions_result.get('studentSubmissions', [])
+                    
+                    # Create a map of courseworkId -> state
+                    submission_states = {s['courseWorkId']: s['state'] for s in submissions}
+                    
                     for item in coursework_items:
+                        # Check submission state
+                        state = submission_states.get(item['id'])
+                        if state in ['TURNED_IN', 'RETURNED']:
+                            continue
+
                         # Parse due date
                         due_date = None
                         if 'dueDate' in item:
@@ -144,7 +173,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                             "subject": course_name,
                             "due": due_date or "No due date",
                             "description": item.get('description', ''),
-                            "state": item.get('state', 'PUBLISHED'),
+                            "state": state or item.get('state', 'PUBLISHED'),
                             "course_id": course_id
                         }
                         assignments.append(assignment)
@@ -233,7 +262,7 @@ def get_student_submissions(student_id: str, course_id: str, coursework_id: str)
         Submission data or None
     """
     try:
-        service = get_classroom_service()
+        service = get_classroom_service(student_id)
         if not service:
             return None
         

@@ -16,6 +16,7 @@ from agents import (
 
 # Import observability
 from core.observability import logger, tracer, metrics
+from core.config import STUDENT_EMAILS, PARENT_EMAILS
 
 app = FastAPI(title="Riva AI API", version="2.0.0")
 
@@ -79,6 +80,7 @@ class AuraRequest(BaseModel):
     role: str
     action: str
     studentId: Optional[str] = None
+    parentId: Optional[str] = None
     question: Optional[str] = None
     image: Optional[str] = None
     audio: Optional[str] = None
@@ -94,7 +96,7 @@ async def aura_route(req: AuraRequest):
     - Parent summary: role="parent", action="get_parent_summary"
     - Guided hint: role="student", action="guided_hint"
     """
-    student_id = req.studentId or "demo-student"
+    student_id = req.studentId or STUDENT_EMAILS[0]
     
     # Student Dashboard
     if req.role == "student" and req.action == "get_dashboard":
@@ -113,6 +115,10 @@ async def aura_route(req: AuraRequest):
     
     # Parent Summary
     if req.role == "parent" and req.action == "get_parent_summary":
+        # Validate parent if ID provided
+        if req.parentId and req.parentId not in PARENT_EMAILS:
+            return {"error": "Unauthorized parent"}
+            
         # Get full orchestration result
         full_result = run_aura_orchestrator(student_id)
         return {

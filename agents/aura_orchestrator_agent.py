@@ -44,8 +44,11 @@ def run_aura_orchestrator(student_id: str) -> Dict[str, Any]:
     # 4. Generate parent summary
     parent_result = run_parent_insight(student_id, assignments, daily_plan, skill_profile)
     
+    # Use prioritized assignments if available, otherwise fallback to original
+    final_assignments = planner_result.get("prioritized_assignments", assignments)
+    
     return {
-        "assignments": assignments,
+        "assignments": final_assignments,
         "skill_profile": skill_profile,
         "daily_plan": daily_plan,
         "parent_summary": parent_result
