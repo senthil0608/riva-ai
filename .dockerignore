@@ -1,0 +1,19 @@
+# .dockerignore for backend
+node_modules/
+riva-ui/
+.git/
+.gitignore
+*.md
+tests/
+scripts/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.env.local
+*.log
+.DS_Store

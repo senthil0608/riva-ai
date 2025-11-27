@@ -1,0 +1,36 @@
+{
+    "mcpServers": {
+        "google-classroom": {
+            "command": "python",
+            "args": [
+                "-m",
+                "tools.google_classroom_server"
+            ],
+            "env": {}
+        },
+        "calendar-mapper": {
+            "command": "python",
+            "args": [
+                "-m",
+                "tools.calendar_mapper_server"
+            ],
+            "env": {}
+        },
+        "ocr": {
+            "command": "python",
+            "args": [
+                "-m",
+                "tools.ocr_server"
+            ],
+            "env": {}
+        },
+        "speech-to-text": {
+            "command": "python",
+            "args": [
+                "-m",
+                "tools.speech_to_text_server"
+            ],
+            "env": {}
+        }
+    }
+}

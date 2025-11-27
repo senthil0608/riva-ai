@@ -1,0 +1,17 @@
+
+python-dotenv>=1.0.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# Observability
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-exporter-gcp-trace>=1.6.0
+prometheus-client>=0.19.0
+google-cloud-logging>=3.8.0
+
+# Google Classroom API
+google-api-python-client>=2.108.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
