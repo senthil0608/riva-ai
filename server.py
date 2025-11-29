@@ -7,16 +7,21 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
-from agents import (
-    run_aura_orchestrator,
-    run_guided_learning,
-)
+import os
+from agents.aura_orchestrator_agent import run_aura_orchestrator
+from agents.guided_learning_agent import run_guided_learning
+from agents.aura_orchestrator_agent import run_aura_orchestrator
+from agents.guided_learning_agent import run_guided_learning
+from core.db import save_user, get_active_student, get_user
+from core.auth_flow import get_auth_url, exchange_code
 
 # Import observability
 from core.observability import logger, tracer, metrics
-from core.config import STUDENT_EMAILS, PARENT_EMAILS
+
+# Configuration
+# STUDENT_EMAILS and PARENT_EMAILS are now fetched from Firestore via get_active_student()
 
 app = FastAPI(title="Riva AI API", version="2.0.0")
 
@@ -75,33 +80,211 @@ async def observability_middleware(request: Request, call_next):
     return response
 
 
-# Request model
+# Models
 class AuraRequest(BaseModel):
-    role: str
-    action: str
+    role: str  # "student" or "parent"
+    action: str  # "get_dashboard", "get_parent_summary", "guided_hint"
     studentId: Optional[str] = None
     parentId: Optional[str] = None
-    question: Optional[str] = None
+    # For guided learning
     image: Optional[str] = None
     audio: Optional[str] = None
+    question: Optional[str] = None
+    auth_token: Optional[str] = None
 
+class OnboardingRequest(BaseModel):
+    student_name: str
+    student_emails: List[str]
+    parent_emails: List[str]
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    redirect_uri: str
+    login_hint: Optional[str] = None
+
+class AuthCallbackRequest(BaseModel):
+    email: str
+    code: str
+    redirect_uri: str
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+@app.get("/api/user")
+def get_user_status():
+    """Check if there is an active student configured."""
+    user = get_active_student()
+    if user:
+        return {"configured": True, "user": user}
+    return {"configured": False}
+
+@app.post("/api/onboarding")
+def onboarding(req: OnboardingRequest):
+    """Save initial user details."""
+    # We use the first email as the primary ID
+    primary_email = req.student_emails[0]
+    data = {
+        "student_name": req.student_name,
+        "student_emails": req.student_emails,
+        "parent_emails": req.parent_emails,
+        "created_at": "now" # In real app use server time
+    }
+    if save_user(primary_email, data):
+        return {"status": "success", "email": primary_email}
+    return {"status": "error", "message": "Failed to save user"}
+
+@app.post("/api/auth/login")
+def auth_login(req: AuthLoginRequest):
+    """Start OAuth flow."""
+    # Use email as state to ensure we know who is authenticating
+    url, state = get_auth_url(req.redirect_uri, req.login_hint, state=req.email)
+    if url:
+        return {"url": url, "state": state}
+    return {"error": "Failed to generate auth URL"}
+
+@app.post("/api/auth/callback")
+def auth_callback(req: AuthCallbackRequest):
+    """Exchange code for token."""
+    creds = exchange_code(req.code, req.redirect_uri)
+    if creds:
+        # Save tokens to user profile
+        if save_user(req.email, {"tokens": creds}):
+            return {"status": "success"}
+    return {"error": "Failed to authenticate"}
+
+# New Secure Auth Endpoint
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
+class VerifyRequest(BaseModel):
+    role: str
+
+@app.post("/api/auth/verify")
+async def verify_token(req: VerifyRequest, request: Request):
+    """Verify Google ID Token and check role access."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Missing or invalid Authorization header"}
+    
+    token = auth_header.split(" ")[1]
+    
+    try:
+        # Verify Firebase ID Token
+        decoded_token = auth.verify_id_token(token)
+        email = decoded_token['email']
+        
+        # Get registered users
+        user = get_active_student()
+        if not user:
+            return {"error": "No active student configuration found"}
+            
+        # Role Check
+        if req.role == "student":
+            # Allow ANY registered student email
+            if email not in user.get('student_emails', []):
+                return {"error": f"Access denied. Email {email} is not a registered student."}
+        
+        elif req.role == "parent":
+            # Strict: Must be in parent_emails list
+            if email not in user.get('parent_emails', []):
+                return {"error": "Access denied. Email not registered as a parent."}
+        
+        else:
+            return {"error": "Invalid role"}
+            
+        return {"status": "success", "email": email, "role": req.role}
+        
+    except Exception as e:
+        logger.error(f"Token verification failed: {e}")
+        return {"error": "Invalid token"}
+
+from firebase_admin import auth
+
+async def verify_request_token(request: Request, required_role: str = None, token_override: str = None) -> dict:
+    # Log headers for debugging
+    # logger.info(f"DEBUG: Headers: {request.headers}")
+    
+    auth_header = request.headers.get("Authorization") or request.headers.get("X-Authorization")
+    
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    elif token_override:
+        token = token_override
+        
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    try:
+        # Verify Firebase ID Token
+        decoded_token = auth.verify_id_token(token)
+        email = decoded_token['email']
+        
+        user = get_active_student()
+        if not user:
+             raise HTTPException(status_code=400, detail="No active student configuration")
+
+        if required_role == "student":
+            # Allow ANY registered student email
+            if email not in user.get('student_emails', []):
+                raise HTTPException(status_code=403, detail=f"Access denied. Email {email} is not a registered student.")
+        elif required_role == "parent":
+            if email not in user.get('parent_emails', []):
+                raise HTTPException(status_code=403, detail=f"Access denied. Email {email} is not a registered parent.")
+        
+        return {"email": email, "role": required_role}
+        
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid token format")
+    except auth.InvalidIdTokenError:
+        raise HTTPException(status_code=401, detail="Invalid ID token")
+    except auth.ExpiredIdTokenError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except Exception as e:
+        logger.error(f"Auth error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+from fastapi import HTTPException
 
 @app.post("/aura")
-async def aura_route(req: AuraRequest):
+async def aura_route(req: AuraRequest, request: Request):
     """
     Main Aura endpoint that handles all requests from Next.js frontend.
-    
-    Supported actions:
-    - Student dashboard: role="student", action="get_dashboard"
-    - Parent summary: role="parent", action="get_parent_summary"
-    - Guided hint: role="student", action="guided_hint"
     """
-    student_id = req.studentId or STUDENT_EMAILS[0]
+    # Verify Token and Enforce Role
+    # We infer role from the request action/role
+    if req.role not in ["student", "parent"]:
+         return {"error": "Invalid role"}
+
+    try:
+        # This will raise HTTPException if invalid
+        # Pass auth_token from body as fallback
+        user_info = await verify_request_token(request, required_role=req.role, token_override=req.auth_token)
+        logger.info(f"Authenticated user: {user_info['email']}")
+    except HTTPException as e:
+        logger.warning(f"Auth failed: {e.detail}")
+        return {"error": e.detail}
+
+    # Try to get student from DB if not provided
+    student_id = req.studentId
+    if not student_id:
+        user = get_active_student()
+        if user:
+            student_id = user['student_emails'][0]
     
+    logger.info(f"Processing request for student_id: {student_id}")
+    
+    if not student_id:
+         return {"error": "No student configured. Please complete onboarding."}
+
     # Student Dashboard
     if req.role == "student" and req.action == "get_dashboard":
-        result = run_aura_orchestrator(student_id)
-        return result
+        try:
+            result = run_aura_orchestrator(student_id)
+            return result
+        except Exception as e:
+            logger.error(f"Orchestrator failed: {e}")
+            return {"error": f"Orchestrator failed: {str(e)}"}
     
     # Guided Learning (photo + voice)
     if req.role == "student" and req.action == "guided_hint":
@@ -115,10 +298,6 @@ async def aura_route(req: AuraRequest):
     
     # Parent Summary
     if req.role == "parent" and req.action == "get_parent_summary":
-        # Validate parent if ID provided
-        if req.parentId and req.parentId not in PARENT_EMAILS:
-            return {"error": "Unauthorized parent"}
-            
         # Get full orchestration result
         full_result = run_aura_orchestrator(student_id)
         return {

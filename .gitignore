@@ -55,3 +55,4 @@ htmlcov/
 
 # Scripts
 run.sh.bak
+serviceAccountKey.json

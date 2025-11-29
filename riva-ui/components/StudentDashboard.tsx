@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import HintPanel from "./HintPanel";
 
 type Assignment = {
@@ -9,6 +10,7 @@ type Assignment = {
     title: string;
     subject: string;
     due?: string;
+    state?: string;
 };
 
 type PlanItem = {
@@ -18,6 +20,7 @@ type PlanItem = {
     subject: string;
     difficulty_tag: string;
     due?: string;
+    state?: string;
 };
 
 type AuraResponse = {
@@ -26,26 +29,78 @@ type AuraResponse = {
 };
 
 export default function StudentDashboard() {
-    const [data, setData] = useState<AuraResponse | null>(null);
+    const router = useRouter(); // Added router initialization
+    const [studentId, setStudentId] = useState<string>(""); // Changed initial value and type
     const [loading, setLoading] = useState(true);
-    const [pastDueDays, setPastDueDays] = useState(30);
-    const [studentId, setStudentId] = useState("demo-student");
+    const [data, setData] = useState<any>(null); // Changed type to any as per instruction
+    const [pastDueDays, setPastDueDays] = useState(7);
+    const [userToken, setUserToken] = useState<string>("");
+
+    // Check user status and get token on mount
+    useEffect(() => {
+        const initAuth = async () => {
+            // Wait for firebase auth to initialize
+            // We can use onAuthStateChanged
+            const { onAuthStateChanged } = await import("firebase/auth"); // Dynamic import to avoid SSR issues if any
+            const { auth } = await import("../lib/firebaseConfig");
+
+            const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    const token = await user.getIdToken();
+                    setUserToken(token);
+
+                    // Also check if configured (optional, but good for consistency)
+                    try {
+                        const res = await fetch("/api/user");
+                        const json = await res.json();
+                        if (!json.configured) {
+                            router.push("/onboarding");
+                        } else {
+                            setStudentId(json.user.student_emails[0]);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
+
+                } else {
+                    // Not logged in, redirect to login
+                    router.push("/");
+                }
+            });
+            return () => unsubscribe();
+        };
+        initAuth();
+    }, [router]);
 
     useEffect(() => {
+        if (!studentId || !userToken) return; // Wait for both
+
         const fetchData = async () => {
             setLoading(true);
             try {
                 const res = await fetch("/api/aura", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${userToken}`,
+                        "X-Authorization": `Bearer ${userToken}` // Fallback for proxy stripping
+                    },
                     body: JSON.stringify({
                         role: "student",
                         action: "get_dashboard",
                         studentId,
+                        auth_token: userToken, // Fallback for aggressive header stripping
                     }),
                 });
                 const json = await res.json();
-                setData(json);
+                if (json.error) { // Added error handling
+                    console.error(json.error);
+                    if (json.error.includes("Access denied") || json.error.includes("Invalid token")) {
+                        router.push("/"); // Redirect to login on auth error
+                    }
+                } else {
+                    setData(json);
+                }
             } catch (err) {
                 console.error("Failed to fetch Aura data", err);
             } finally {
@@ -54,7 +109,7 @@ export default function StudentDashboard() {
         };
 
         fetchData();
-    }, [studentId]);
+    }, [studentId, userToken]);
 
     // Helper to check if date is > pastDueDays old
     const isOld = (dateStr?: string) => {
@@ -66,8 +121,50 @@ export default function StudentDashboard() {
         return diffDays > pastDueDays;
     };
 
-    const currentAssignments = data?.assignments?.filter((a) => !isOld(a.due)) || [];
-    const oldAssignments = data?.assignments?.filter((a) => isOld(a.due)) || [];
+    const hasNoDueDate = (a: Assignment) => !a.due || a.due === "No due date";
+
+    const getAssignmentColor = (a: Assignment | PlanItem) => {
+        // Green: Completed
+        if (a.state === 'TURNED_IN' || a.state === 'RETURNED') {
+            return '#22c55e'; // Green-500
+        }
+
+        if (!a.due || a.due === "No due date") {
+            return '#eab308'; // Yellow-500 (Treat no due date as low risk/future)
+        }
+
+        const due = new Date(a.due);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize today to start of day
+
+        // Check if strictly past due (yesterday or earlier)
+        // We add 1 day (86400000ms) to due date to compare with today effectively? 
+        // Actually, simple comparison: if due < today (midnight), it's past due.
+        // But due dates from classroom might be just YYYY-MM-DD.
+        // Let's assume due date is end of that day.
+        const dueEndOfDay = new Date(due);
+        dueEndOfDay.setHours(23, 59, 59, 999);
+
+        if (dueEndOfDay < today) {
+            return '#ef4444'; // Red-500 (Cannot be completed / Past Due)
+        }
+
+        // Orange: Due Today or Tomorrow
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(23, 59, 59, 999);
+
+        if (dueEndOfDay <= tomorrow) {
+            return '#f97316'; // Orange-500 (Verge of not completing)
+        }
+
+        // Yellow: Future
+        return '#eab308'; // Yellow-500 (No risk yet)
+    };
+
+    const currentAssignments = data?.assignments?.filter((a: Assignment) => !isOld(a.due) && !hasNoDueDate(a)) || [];
+    const noDueAssignments = data?.assignments?.filter((a: Assignment) => hasNoDueDate(a)) || [];
+    const oldAssignments = data?.assignments?.filter((a: Assignment) => isOld(a.due)) || [];
 
     return (
         <div style={{ display: "grid", gap: "1.5rem", gridTemplateColumns: "2fr 1.5fr" }}>
@@ -78,7 +175,7 @@ export default function StudentDashboard() {
                     <p>No tasks planned for today.</p>
                 )}
                 {!loading &&
-                    data?.daily_plan?.map((item) => (
+                    data?.daily_plan?.map((item: PlanItem) => (
                         <div
                             key={item.task_id}
                             style={{
@@ -88,7 +185,7 @@ export default function StudentDashboard() {
                                 marginBottom: "0.5rem",
                             }}
                         >
-                            <div style={{ fontWeight: 600 }}>
+                            <div style={{ fontWeight: 600, color: getAssignmentColor(item) }}>
                                 {item.time} – {item.title}
                             </div>
                             <div style={{ fontSize: "0.85rem", opacity: 0.8 }}>
@@ -97,11 +194,11 @@ export default function StudentDashboard() {
                         </div>
                     ))}
 
-                <h3 style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
+                <h3 style={{ marginTop: "2rem", marginBottom: "0.5rem" }}>
                     Current Assignments
                 </h3>
                 {!loading &&
-                    currentAssignments.map((a) => (
+                    currentAssignments.map((a: Assignment) => (
                         <div
                             key={a.id}
                             style={{
@@ -109,12 +206,35 @@ export default function StudentDashboard() {
                                 padding: "0.5rem 0",
                             }}
                         >
-                            <div style={{ fontWeight: 500 }}>{a.title}</div>
+                            <div style={{ fontWeight: 500, color: getAssignmentColor(a) }}>{a.title}</div>
                             <div style={{ fontSize: "0.85rem", opacity: 0.8 }}>
                                 {a.subject} {a.due ? `• Due ${a.due}` : ""}
                             </div>
                         </div>
                     ))}
+
+                {noDueAssignments.length > 0 && (
+                    <>
+                        <h3 style={{ marginTop: "2rem", marginBottom: "0.5rem" }}>
+                            No Due Date
+                        </h3>
+                        {!loading &&
+                            noDueAssignments.map((a: Assignment) => (
+                                <div
+                                    key={a.id}
+                                    style={{
+                                        borderBottom: "1px solid #111827",
+                                        padding: "0.5rem 0",
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 500, color: getAssignmentColor(a) }}>{a.title}</div>
+                                    <div style={{ fontSize: "0.85rem", opacity: 0.8 }}>
+                                        {a.subject}
+                                    </div>
+                                </div>
+                            ))}
+                    </>
+                )}
             </div>
 
             <div>
@@ -149,7 +269,7 @@ export default function StudentDashboard() {
                         <p style={{ fontSize: "0.85rem", color: "#6B7280" }}>No assignments found.</p>
                     )}
 
-                    {oldAssignments.map((a) => (
+                    {oldAssignments.map((a: Assignment) => (
                         <div
                             key={a.id}
                             style={{
@@ -158,7 +278,7 @@ export default function StudentDashboard() {
                                 opacity: 0.6,
                             }}
                         >
-                            <div style={{ fontWeight: 500, fontSize: "0.9rem" }}>{a.title}</div>
+                            <div style={{ fontWeight: 500, fontSize: "0.9rem", color: getAssignmentColor(a) }}>{a.title}</div>
                             <div style={{ fontSize: "0.8rem" }}>
                                 {a.subject} • Due {a.due}
                             </div>

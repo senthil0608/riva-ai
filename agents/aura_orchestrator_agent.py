@@ -25,6 +25,8 @@ def run_aura_orchestrator(student_id: str) -> Dict[str, Any]:
         Dictionary with all results (assignments, daily_plan, skill_profile, parent_summary)
     """
     print(f"[Aura] Starting orchestration for student: {student_id}")
+    from core.observability import logger
+    logger.info(f"Orchestrator called for student: {student_id}")
     
     # 1. Get assignments
     classroom_result = run_classroom_sync(student_id)

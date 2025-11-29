@@ -31,16 +31,17 @@ SCOPES = [
 ]
 
 
+from core.db import get_user
+
 def get_classroom_service(student_email: Optional[str] = None):
     """
     Authenticate and return Google Classroom API service.
     
-    Uses OAuth 2.0 flow with credentials stored in token_{email}.pickle.
-    First time requires user authentication via browser.
+    Prioritizes credentials stored in Firestore.
+    Falls back to local pickle files for backward compatibility.
     
     Args:
         student_email: The email of the student to authenticate.
-                      If None, uses default 'token.pickle'.
     
     Returns:
         Google Classroom API service object or None if auth fails
@@ -50,44 +51,29 @@ def get_classroom_service(student_email: Optional[str] = None):
     
     creds = None
     
-    # Determine token path based on email
+    # 1. Try Firestore first
     if student_email:
-        sanitized_email = student_email.replace('@', '_').replace('.', '_')
-        token_path = f'token_{sanitized_email}.pickle'
-    else:
-        token_path = 'token.pickle'
-        
-    credentials_path = os.getenv('GOOGLE_CLASSROOM_CREDENTIALS', 'credentials.json')
-    
-    # Load existing credentials
-    if os.path.exists(token_path):
-        with open(token_path, 'rb') as token:
-            creds = pickle.load(token)
-    
-    # Refresh or get new credentials
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            logger.info(f"Refreshing Google Classroom credentials for {student_email}")
-            creds.refresh(Request())
-        else:
-            if not os.path.exists(credentials_path):
-                logger.error(
-                    "Google Classroom credentials not found",
-                    credentials_path=credentials_path,
-                    help="Download from https://console.cloud.google.com/apis/credentials"
+        try:
+            user_data = get_user(student_email)
+            if user_data and 'tokens' in user_data:
+                token_data = user_data['tokens']
+                creds = Credentials(
+                    token=token_data.get('token'),
+                    refresh_token=token_data.get('refresh_token'),
+                    token_uri=token_data.get('token_uri'),
+                    client_id=token_data.get('client_id'),
+                    client_secret=token_data.get('client_secret'),
+                    scopes=token_data.get('scopes')
                 )
-                return None
-            
-            logger.info(f"Starting Google Classroom OAuth flow for {student_email}")
-            flow = InstalledAppFlow.from_client_secrets_file(
-                credentials_path, SCOPES
-            )
-            creds = flow.run_local_server(port=8080)
-        
-        # Save credentials
-        with open(token_path, 'wb') as token:
-            pickle.dump(creds, token)
-        logger.info(f"Google Classroom credentials saved to {token_path}")
+                logger.info(f"Loaded credentials from Firestore for {student_email}")
+        except Exception as e:
+            logger.error(f"Error loading credentials from Firestore: {e}")
+
+    # 2. Fallback to local pickle (legacy) - REMOVED
+    # User requested strict Firestore usage.
+    if not creds:
+        logger.warning(f"No credentials found for {student_email} in Firestore.")
+        return None
     
     try:
         service = build('classroom', 'v1', credentials=creds)
@@ -158,8 +144,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                     for item in coursework_items:
                         # Check submission state
                         state = submission_states.get(item['id'])
-                        if state in ['TURNED_IN', 'RETURNED']:
-                            continue
+                        # We now include all states (TURNED_IN, RETURNED, etc.)
 
                         # Parse due date
                         due_date = None

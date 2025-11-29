@@ -1,9 +1,10 @@
+```
 """
 Simple demo script for Riva AI - ADK version.
 """
-from agents import run_aura_orchestrator
-from core.config import STUDENT_EMAILS
-
+import os
+from agents.classroom_sync_agent import run_classroom_sync_agent
+from core.db import get_active_student
 
 def main():
     """Run a simple demo of the Aura orchestrator."""
@@ -12,7 +13,12 @@ def main():
     print("=" * 60)
     print()
     
-    student_id = STUDENT_EMAILS[0]
+    user = get_active_student()
+    if not user:
+        print("No active student found in Firestore.")
+        return
+
+    student_id = user['student_emails'][0]
     print(f"Running Aura orchestrator for student: {student_id}")
     print()
     

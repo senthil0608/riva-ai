@@ -106,7 +106,8 @@ def run_daily_planner(
             "title": assignment["title"],
             "subject": assignment["subject"],
             "difficulty_tag": difficulty_tag,
-            "due": assignment.get("due") # Add due date to plan
+            "due": assignment.get("due"), # Add due date to plan
+            "state": assignment.get("state") # Add state to plan for color coding
         })
     
     return {
@@ -132,6 +133,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
     try:
         import google.generativeai as genai
         from datetime import datetime
+        import time
         
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -150,6 +152,22 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         # Log initial order
         logger.info(f"Initial top 3: {[a['title'] for a in assignments[:3]]}")
         
+
+        # Optimization: Only send top 50 assignments to LLM to avoid context limit/timeout
+        assignments_to_prioritize = assignments[:50]
+        remaining_assignments = assignments[50:]
+        
+        # Simplify assignment objects for prompt
+        simplified_assignments = []
+        for a in assignments_to_prioritize:
+            simple_a = {k: v for k, v in a.items() if k in ['id', 'title', 'subject', 'due']}
+            # Truncate description if present
+            if 'description' in a and a['description']:
+                simple_a['description'] = a['description'][:200]
+            simplified_assignments.append(simple_a)
+
+        logger.info(f"Sending {len(simplified_assignments)} assignments to LLM for prioritization")
+        
         prompt = f"""
         You are an expert student planner. Re-order the following assignments list to optimize for the student's schedule and success.
         
@@ -158,7 +176,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         - Calendar Events today: {', '.join(calendar_events)}
         
         Assignments (currently sorted by due date):
-        {json.dumps([{k: v for k, v in a.items() if k in ['id', 'title', 'subject', 'due', 'description']} for a in assignments])}
+        {json.dumps(simplified_assignments)}
         
         Task:
         Return the SAME list of assignments, but re-ordered based on "Priority to Start".
@@ -172,7 +190,10 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         Return ONLY the valid JSON array of assignment objects. Do not wrap in markdown code blocks.
         """
         
+        logger.info("Calling Gemini API...")
+        start_time = time.time()
         response = model.generate_content(prompt)
+        logger.info(f"Gemini API returned in {time.time() - start_time:.2f}s")
         
         # Extract JSON from response
         text = response.text
@@ -186,7 +207,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
             
             # Map back to full assignment objects (in case LLM dropped fields)
             # Create a dict of id -> full_assignment
-            assignment_map = {a['id']: a for a in assignments}
+            assignment_map = {a['id']: a for a in assignments_to_prioritize}
             
             final_list = []
             seen_ids = set()
@@ -196,10 +217,13 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
                     final_list.append(assignment_map[p['id']])
                     seen_ids.add(p['id'])
             
-            # Append any missing assignments (fallback)
-            for a in assignments:
+            # Append any missing from the prioritized set
+            for a in assignments_to_prioritize:
                 if a['id'] not in seen_ids:
                     final_list.append(a)
+            
+            # Append the remaining assignments that weren't sent to LLM
+            final_list.extend(remaining_assignments)
             
             logger.info(f"Prioritized top 3: {[a['title'] for a in final_list[:3]]}")
             return final_list

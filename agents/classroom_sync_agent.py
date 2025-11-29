@@ -2,14 +2,18 @@
 Classroom Sync Agent - Google ADK version.
 Fetches student assignments from Google Classroom using ADK Agent.
 """
-from core.config import STUDENT_EMAILS
-from typing import Dict, Any, Optional
 import os
 import sys
 import time
+from typing import Dict, Any, Optional
+from core.db import get_active_student
 
 # Import observability
 from core.observability import logger, tracer, metrics
+
+# Configuration
+# We now fetch this dynamically from DB
+# STUDENT_EMAILS = os.getenv("STUDENT_EMAILS", "").split(",")
 
 # Import MCP
 try:
@@ -21,7 +25,9 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
-    from tools.google_classroom_tool import list_assignments_for_student
+
+# Always import the tool function as we use it directly now
+from tools.google_classroom_tool import list_assignments_for_student
 
 @tracer.trace_agent("classroom_sync")
 @tracer.trace_agent("classroom_sync")
@@ -39,9 +45,13 @@ def run_classroom_sync(student_id: str) -> Dict[str, Any]:
     
     all_assignments = []
     
+    # Fetch student emails from DB
+    user = get_active_student()
+    student_emails = user['student_emails'] if user else []
+
     # Iterate over all configured student emails to fetch assignments
-    for email in STUDENT_EMAILS:
-        logger.info(f"Fetching assignments for {email}")
+    for email in student_emails:
+        logger.info(f"Fetching assignments for: {email}")
         
         if MCP_AVAILABLE:
             try:
