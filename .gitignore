@@ -56,6 +56,5 @@ htmlcov/
 # Scripts
 run.sh.bak
 serviceAccountKey.json
-*.pdf
-
-*.jpeg
+# Writeup
+writeup/
