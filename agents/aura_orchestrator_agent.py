@@ -48,12 +48,14 @@ def run_aura_orchestrator(student_id: str) -> Dict[str, Any]:
     
     # Use prioritized assignments if available, otherwise fallback to original
     final_assignments = planner_result.get("prioritized_assignments", assignments)
+    calendar_events = planner_result.get("calendar_events", [])
     
     return {
         "assignments": final_assignments,
         "skill_profile": skill_profile,
         "daily_plan": daily_plan,
-        "parent_summary": parent_result
+        "parent_summary": parent_result,
+        "calendar_events": calendar_events
     }
 
 

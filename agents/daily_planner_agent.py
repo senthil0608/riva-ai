@@ -96,6 +96,14 @@ def run_daily_planner(
     # Prioritize assignments
     prioritized_assignments = prioritize_assignments(assignments, student_id)
     
+    # Fetch real calendar events
+    calendar_events = []
+    try:
+        from tools.calendar_mapper_tool import get_calendar_events
+        calendar_events = get_calendar_events(student_id)
+    except Exception as e:
+        logger.error(f"Error fetching calendar events in planner: {e}")
+
     daily_plan = []
     # Use prioritized assignments for the plan
     for i, assignment in enumerate(prioritized_assignments[:len(slots)]):
@@ -112,7 +120,8 @@ def run_daily_planner(
     
     return {
         "daily_plan": daily_plan,
-        "prioritized_assignments": prioritized_assignments
+        "prioritized_assignments": prioritized_assignments,
+        "calendar_events": calendar_events
     }
 
 

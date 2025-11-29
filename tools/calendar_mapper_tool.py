@@ -70,3 +70,52 @@ def get_available_time_slots(student_id: Optional[str] = None) -> List[str]:
     except Exception as e:
         logger.error(f"Error fetching calendar events: {e}")
         return []
+
+def get_calendar_events(student_id: Optional[str] = None) -> List[dict]:
+    """
+    Get raw calendar events for a student's schedule from Google Calendar.
+    
+    Args:
+        student_id: The student's ID (email)
+        
+    Returns:
+        List of calendar event objects
+    """
+    if not student_id:
+        return []
+
+    user = get_user(student_id)
+    if not user or 'tokens' not in user:
+        logger.warning(f"No tokens found for user {student_id}")
+        return []
+
+    try:
+        creds_data = user['tokens']
+        creds = Credentials(
+            token=creds_data['token'],
+            refresh_token=creds_data.get('refresh_token'),
+            token_uri=creds_data.get('token_uri'),
+            client_id=creds_data.get('client_id'),
+            client_secret=creds_data.get('client_secret'),
+            scopes=creds_data.get('scopes')
+        )
+
+        service = build('calendar', 'v3', credentials=creds)
+
+        # Time range: Now to End of Day
+        now = datetime.datetime.utcnow()
+        end_of_day = now.replace(hour=23, minute=59, second=59)
+        
+        events_result = service.events().list(
+            calendarId='primary', 
+            timeMin=now.isoformat() + 'Z',
+            timeMax=end_of_day.isoformat() + 'Z',
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        return events_result.get('items', [])
+
+    except Exception as e:
+        logger.error(f"Error fetching calendar events: {e}")
+        return []

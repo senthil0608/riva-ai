@@ -91,6 +91,7 @@ class AuraRequest(BaseModel):
     audio: Optional[str] = None
     question: Optional[str] = None
     auth_token: Optional[str] = None
+    message: Optional[str] = None
 
 class OnboardingRequest(BaseModel):
     student_name: str
@@ -303,6 +304,12 @@ async def aura_route(req: AuraRequest, request: Request):
         return {
             "parent_summary": full_result["parent_summary"]
         }
+        
+    # Chat
+    if req.role == "student" and req.action == "chat":
+        from agents.aura_chat_agent import run_aura_chat
+        result = run_aura_chat(student_id, req.message)
+        return result
     
     return {"error": "Invalid request"}
 
