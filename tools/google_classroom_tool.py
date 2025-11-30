@@ -4,7 +4,6 @@ Fetches student assignments from Google Classroom using the official API.
 """
 from typing import List, Dict, Any, Optional
 import os
-import pickle
 from datetime import datetime
 
 try:
@@ -101,9 +100,8 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
             service = get_classroom_service(student_id)
             
             if not service:
-                # Fallback to mock data
-                logger.warning("Using mock data for Google Classroom")
-                return _get_mock_assignments()
+                logger.error("Could not get Classroom service")
+                return []
             
             assignments = []
             
@@ -186,8 +184,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                 student_id=student_id
             )
             metrics.record_error("HttpError", "tool.list_assignments")
-            # Fallback to mock data
-            return _get_mock_assignments()
+            return []
         
         except Exception as e:
             logger.error(
@@ -197,41 +194,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                 student_id=student_id
             )
             metrics.record_error(type(e).__name__, "tool.list_assignments")
-            # Fallback to mock data
-            return _get_mock_assignments()
-
-
-def _get_mock_assignments() -> List[Dict[str, Any]]:
-    """Return mock assignments for development/testing."""
-    return [
-        {
-            "id": "mock_a1",
-            "title": "Math Worksheet 5",
-            "subject": "Math",
-            "due": "2025-11-26",
-            "description": "Complete problems 1-20",
-            "state": "PUBLISHED",
-            "course_id": "mock_course_1"
-        },
-        {
-            "id": "mock_a2",
-            "title": "Reading Log - Chapter 3",
-            "subject": "ELA",
-            "due": "2025-11-27",
-            "description": "Read and summarize chapter 3",
-            "state": "PUBLISHED",
-            "course_id": "mock_course_2"
-        },
-        {
-            "id": "mock_a3",
-            "title": "Science Lab Prep",
-            "subject": "Science",
-            "due": "2025-11-28",
-            "description": "Prepare for lab experiment",
-            "state": "PUBLISHED",
-            "course_id": "mock_course_3"
-        }
-    ]
+            return []
 
 
 def get_student_submissions(student_id: str, course_id: str, coursework_id: str) -> Optional[Dict[str, Any]]:
@@ -269,3 +232,65 @@ def get_student_submissions(student_id: str, course_id: str, coursework_id: str)
     except Exception as e:
         logger.error(f"Error fetching submission: {e}")
         return None
+
+def summarize_assignment(assignment: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Summarize a complex assignment using Gemini.
+    
+    Args:
+        assignment: Assignment dictionary with 'title' and 'description'
+        
+    Returns:
+        Dictionary with 'summary' and 'key_requirements'
+    """
+    description = assignment.get('description', '')
+    if not description or len(description) < 50:
+        return {
+            "summary": description,
+            "key_requirements": []
+        }
+        
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return {
+            "summary": description[:100] + "...",
+            "key_requirements": []
+        }
+
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-flash-latest')
+        
+        prompt = f"""
+        Summarize this homework assignment for a student.
+        
+        Title: {assignment.get('title')}
+        Description:
+        {description}
+        
+        Task:
+        1. Create a 1-sentence summary.
+        2. Extract a bulleted list of key requirements/deliverables.
+        
+        Output JSON:
+        {{
+            "summary": "...",
+            "key_requirements": ["req1", "req2"]
+        }}
+        """
+        
+        response = model.generate_content(prompt)
+        text = response.text.replace('```json', '').replace('```', '').strip()
+        
+        import json
+        import re
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+            
+        return {"summary": description[:100], "key_requirements": []}
+
+    except Exception as e:
+        logger.error(f"Error summarizing assignment: {e}")
+        return {"summary": description[:100], "key_requirements": []}
