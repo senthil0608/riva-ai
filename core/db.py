@@ -69,3 +69,31 @@ def get_active_student():
     except Exception as e:
         logger.error(f"Error getting active student: {e}")
         return None
+
+def save_workflow_state(session_id: str, state_data: dict):
+    """Save workflow state to Firestore."""
+    db = get_db()
+    if not db:
+        return False
+    try:
+        # Convert datetime objects to string or timestamp if needed, 
+        # but Firestore handles datetime natively.
+        db.collection("workflow_states").document(session_id).set(state_data, merge=True)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving workflow state {session_id}: {e}")
+        return False
+
+def get_workflow_state(session_id: str) -> dict:
+    """Get workflow state from Firestore."""
+    db = get_db()
+    if not db:
+        return None
+    try:
+        doc = db.collection("workflow_states").document(session_id).get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        logger.error(f"Error getting workflow state {session_id}: {e}")
+        return None

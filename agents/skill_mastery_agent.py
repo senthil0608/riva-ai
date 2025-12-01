@@ -2,18 +2,9 @@
 Skill Mastery Agent - Google ADK version.
 Analyzes student proficiency across subjects using Gemini LLM.
 """
-from typing import Dict, Any
-import os
+from core.models import SkillProfile, SkillLevel
 
-try:
-    from google.adk import Agent
-    ADK_AVAILABLE = True
-except ImportError:
-    ADK_AVAILABLE = False
-    print("Warning: google-adk not installed. Using fallback mode.")
-
-
-def run_skill_mastery(student_id: str) -> Dict[str, Any]:
+def run_skill_mastery(student_id: str) -> SkillProfile:
     """
     Analyze student skill levels across subjects.
     Fallback function when ADK not available.
@@ -22,15 +13,15 @@ def run_skill_mastery(student_id: str) -> Dict[str, Any]:
         student_id: The student's ID
         
     Returns:
-        Dictionary with skill profile
+        SkillProfile (Dict[str, SkillLevel])
     """
     # Mock data for fallback
     skill_profile = {
-        "Math": "needs_support",
-        "ELA": "on_track",
-        "Science": "strong"
+        "Math": SkillLevel.NEEDS_SUPPORT,
+        "ELA": SkillLevel.ON_TRACK,
+        "Science": SkillLevel.STRONG
     }
-    return {"skill_profile": skill_profile}
+    return skill_profile
 
 
 

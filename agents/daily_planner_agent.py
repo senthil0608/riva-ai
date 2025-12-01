@@ -25,10 +25,12 @@ except ImportError:
 from core.observability import logger, tracer
 
 
+from core.models import Assignment, SkillProfile, DailyPlanItem, SkillLevel
+
 def run_daily_planner(
     student_id: str,
-    assignments: List[Dict[str, Any]],
-    skill_profile: Dict[str, str]
+    assignments: List[Assignment],
+    skill_profile: SkillProfile
 ) -> Dict[str, Any]:
     """
     Create a daily plan for the student.
@@ -36,11 +38,11 @@ def run_daily_planner(
     
     Args:
         student_id: The student's ID
-        assignments: List of assignments
+        assignments: List of Assignment objects
         skill_profile: Student's skill levels by subject
         
     Returns:
-        Dictionary with daily plan
+        Dictionary with daily plan (List[DailyPlanItem]) and other metadata
     """
     slots = []
     
@@ -104,19 +106,21 @@ def run_daily_planner(
     except Exception as e:
         logger.error(f"Error fetching calendar events in planner: {e}")
 
-    daily_plan = []
+    daily_plan: List[DailyPlanItem] = []
     # Use prioritized assignments for the plan
     for i, assignment in enumerate(prioritized_assignments[:len(slots)]):
-        difficulty_tag = skill_profile.get(assignment.get("subject", ""), "on_track")
-        daily_plan.append({
-            "time": slots[i],
-            "task_id": assignment["id"],
-            "title": assignment["title"],
-            "subject": assignment["subject"],
-            "difficulty_tag": difficulty_tag,
-            "due": assignment.get("due"), # Add due date to plan
-            "state": assignment.get("state") # Add state to plan for color coding
-        })
+        difficulty_tag = skill_profile.get(assignment.subject, SkillLevel.ON_TRACK)
+        
+        plan_item = DailyPlanItem(
+            time=slots[i],
+            task_id=assignment.id,
+            title=assignment.title,
+            subject=assignment.subject,
+            difficulty_tag=difficulty_tag,
+            due=assignment.due,
+            state=assignment.state
+        )
+        daily_plan.append(plan_item)
     
     return {
         "daily_plan": daily_plan,
@@ -125,19 +129,19 @@ def run_daily_planner(
     }
 
 
-def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -> List[Dict[str, Any]]:
+def prioritize_assignments(assignments: List[Assignment], student_id: str) -> List[Assignment]:
     """
     Prioritize assignments using Gemini LLM based on complexity and due date.
     
     Args:
-        assignments: List of assignments
+        assignments: List of Assignment objects
         student_id: Student ID
         
     Returns:
-        List of assignments sorted by priority
+        List of Assignment objects sorted by priority
     """
     # Baseline sort by due date (soonest first)
-    assignments.sort(key=lambda x: x.get('due') or '9999-99-99')
+    assignments.sort(key=lambda x: x.due or '9999-99-99')
     
     try:
         import google.generativeai as genai
@@ -159,7 +163,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         ]
         
         # Log initial order
-        logger.info(f"Initial top 3: {[a['title'] for a in assignments[:3]]}")
+        logger.info(f"Initial top 3: {[a.title for a in assignments[:3]]}")
         
 
         # Optimization: Only send top 50 assignments to LLM to avoid context limit/timeout
@@ -169,10 +173,16 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         # Simplify assignment objects for prompt
         simplified_assignments = []
         for a in assignments_to_prioritize:
-            simple_a = {k: v for k, v in a.items() if k in ['id', 'title', 'subject', 'due']}
+            # Create a dict for JSON serialization
+            simple_a = {
+                "id": a.id,
+                "title": a.title,
+                "subject": a.subject,
+                "due": a.due
+            }
             # Truncate description if present
-            if 'description' in a and a['description']:
-                simple_a['description'] = a['description'][:200]
+            if a.description:
+                simple_a['description'] = a.description[:200]
             simplified_assignments.append(simple_a)
 
         logger.info(f"Sending {len(simplified_assignments)} assignments to LLM for prioritization")
@@ -216,7 +226,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
             
             # Map back to full assignment objects (in case LLM dropped fields)
             # Create a dict of id -> full_assignment
-            assignment_map = {a['id']: a for a in assignments_to_prioritize}
+            assignment_map = {a.id: a for a in assignments_to_prioritize}
             
             final_list = []
             seen_ids = set()
@@ -228,13 +238,13 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
             
             # Append any missing from the prioritized set
             for a in assignments_to_prioritize:
-                if a['id'] not in seen_ids:
+                if a.id not in seen_ids:
                     final_list.append(a)
             
             # Append the remaining assignments that weren't sent to LLM
             final_list.extend(remaining_assignments)
             
-            logger.info(f"Prioritized top 3: {[a['title'] for a in final_list[:3]]}")
+            logger.info(f"Prioritized top 3: {[a.title for a in final_list[:3]]}")
             return final_list
         else:
             logger.warning("Could not parse LLM response for prioritization")
