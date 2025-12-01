@@ -1,9 +1,8 @@
-```
 """
 Simple demo script for Riva AI - ADK version.
 """
 import os
-from agents.classroom_sync_agent import run_classroom_sync_agent
+from agents.aura_orchestrator_agent import run_aura_orchestrator
 from core.db import get_active_student
 
 def main():
@@ -13,7 +12,8 @@ def main():
     print("=" * 60)
     print()
     
-    user = get_active_student()
+    email = os.getenv("DEMO_STUDENT_EMAIL")
+    user = get_active_student(email)
     if not user:
         print("No active student found in Firestore.")
         return

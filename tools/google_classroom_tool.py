@@ -15,7 +15,7 @@ try:
     GOOGLE_API_AVAILABLE = True
 except ImportError:
     GOOGLE_API_AVAILABLE = False
-    print("Warning: Google API libraries not installed. Using mock data.")
+    print("Warning: Google API libraries not installed.")
 
 # Import observability
 from core.observability import logger, tracer, metrics
@@ -24,9 +24,7 @@ from core.observability import logger, tracer, metrics
 SCOPES = [
     'https://www.googleapis.com/auth/classroom.courses.readonly',
     'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
-    'https://www.googleapis.com/auth/classroom.coursework.students.readonly',
-    'https://www.googleapis.com/auth/classroom.rosters.readonly',
-    'https://www.googleapis.com/auth/classroom.student-submissions.students.readonly'
+    'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly'
 ]
 
 

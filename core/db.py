@@ -51,11 +51,43 @@ def get_user(email: str):
         logger.error(f"Error getting user {email}: {e}")
         return None
 
-def get_active_student():
+def find_user_by_email(email: str):
     """
-    Get the first configured student from Firestore.
-    This replaces the old config.STUDENT_EMAILS logic.
+    Find a user document that contains the given email in student_emails or parent_emails.
     """
+    db = get_db()
+    if not db:
+        return None
+    try:
+        # 1. Try direct lookup (fastest)
+        doc = db.collection("users").document(email).get()
+        if doc.exists:
+            return doc.to_dict()
+            
+        # 2. Query student_emails
+        students = db.collection("users").where("student_emails", "array_contains", email).limit(1).stream()
+        for user in students:
+            return user.to_dict()
+            
+        # 3. Query parent_emails
+        parents = db.collection("users").where("parent_emails", "array_contains", email).limit(1).stream()
+        for user in parents:
+            return user.to_dict()
+            
+        return None
+    except Exception as e:
+        logger.error(f"Error finding user by email {email}: {e}")
+        return None
+
+def get_active_student(email: str = None):
+    """
+    Get the active student from Firestore.
+    If email is provided, fetches the user associated with that email.
+    If not, falls back to the first user (legacy behavior).
+    """
+    if email:
+        return find_user_by_email(email)
+
     db = get_db()
     if not db:
         return None

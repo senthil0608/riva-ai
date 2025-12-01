@@ -30,7 +30,7 @@ except ImportError:
 from tools.google_classroom_tool import list_assignments_for_student
 
 @tracer.trace_agent("classroom_sync")
-@tracer.trace_agent("classroom_sync")
+
 def run_classroom_sync(student_id: str) -> Dict[str, Any]:
     """
     Fetch assignments from Google Classroom for all configured student accounts.
@@ -46,7 +46,7 @@ def run_classroom_sync(student_id: str) -> Dict[str, Any]:
     all_assignments = []
     
     # Fetch student emails from DB
-    user = get_active_student()
+    user = get_active_student(student_id)
     student_emails = user['student_emails'] if user else []
 
     # Iterate over all configured student emails to fetch assignments

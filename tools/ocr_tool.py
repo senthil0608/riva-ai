@@ -15,6 +15,34 @@ def extract_text_from_image(image: Union[str, bytes]) -> str:
     Returns:
         Extracted text from the image
     """
-    # TODO: Implement Gemini Vision API call
-    # For now, return mock data
-    return "Solve 3x + 5 = 20"
+    import os
+    import google.generativeai as genai
+    from core.observability import logger
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        logger.error("GOOGLE_API_KEY not found for OCR")
+        return ""
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        # If image is a path, read it
+        if isinstance(image, str) and os.path.exists(image):
+            # Upload file to Gemini
+            myfile = genai.upload_file(image)
+            
+            response = model.generate_content([
+                "Extract all text from this image. Return ONLY the extracted text.",
+                myfile
+            ])
+            return response.text.strip()
+            
+        else:
+            logger.warning("Direct bytes/base64 not fully implemented in this snippet without temp file.")
+            return ""
+
+    except Exception as e:
+        logger.error(f"Error in OCR: {e}")
+        return ""

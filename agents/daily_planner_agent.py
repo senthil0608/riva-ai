@@ -152,11 +152,26 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-flash-latest')
         
-        # Mock calendar events for context
-        calendar_events = [
-            "Soccer Practice: 4:00 PM - 6:00 PM",
-            "Dinner: 6:30 PM - 7:00 PM"
-        ]
+        # Fetch real calendar events for context
+        from tools.calendar_mapper_tool import get_calendar_events
+        raw_events = get_calendar_events(student_id)
+        
+        # Format events for the prompt
+        calendar_events = []
+        for event in raw_events:
+            summary = event.get('summary', 'Busy')
+            start = event['start'].get('dateTime') or event['start'].get('date')
+            end = event['end'].get('dateTime') or event['end'].get('date')
+            # Simplify time for LLM
+            if 'T' in start:
+                start_time = start.split('T')[1][:5]
+                end_time = end.split('T')[1][:5]
+                calendar_events.append(f"{summary}: {start_time} - {end_time}")
+            else:
+                calendar_events.append(f"{summary}: All Day")
+        
+        if not calendar_events:
+            calendar_events = ["No events scheduled for today."]
         
         # Log initial order
         logger.info(f"Initial top 3: {[a['title'] for a in assignments[:3]]}")

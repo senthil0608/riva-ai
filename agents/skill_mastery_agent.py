@@ -24,13 +24,14 @@ def run_skill_mastery(student_id: str) -> Dict[str, Any]:
     Returns:
         Dictionary with skill profile
     """
-    # Mock data for fallback
-    skill_profile = {
-        "Math": "needs_support",
-        "ELA": "on_track",
-        "Science": "strong"
-    }
-    return {"skill_profile": skill_profile}
+    from core.db import get_active_student
+    
+    user = get_active_student(student_id)
+    if user and 'skill_profile' in user:
+        return {"skill_profile": user['skill_profile']}
+        
+    # Default if no profile found (not mock, just empty state)
+    return {"skill_profile": {}}
 
 
 

@@ -176,9 +176,9 @@ async def verify_token(req: VerifyRequest, request: Request):
         email = decoded_token['email']
         
         # Get registered users
-        user = get_active_student()
+        user = get_active_student(email)
         if not user:
-            return {"error": "No active student configuration found"}
+            return {"error": "User not found or not configured"}
             
         # Role Check
         if req.role == "student":
@@ -221,9 +221,9 @@ async def verify_request_token(request: Request, required_role: str = None, toke
         decoded_token = auth.verify_id_token(token)
         email = decoded_token['email']
         
-        user = get_active_student()
+        user = get_active_student(email)
         if not user:
-             raise HTTPException(status_code=400, detail="No active student configuration")
+             raise HTTPException(status_code=400, detail="User not found or not configured")
 
         if required_role == "student":
             # Allow ANY registered student email
@@ -269,9 +269,14 @@ async def aura_route(req: AuraRequest, request: Request):
     # Try to get student from DB if not provided
     student_id = req.studentId
     if not student_id:
-        user = get_active_student()
-        if user:
-            student_id = user['student_emails'][0]
+        # If student, default to self
+        if req.role == "student":
+            student_id = user_info['email']
+        else:
+            # If parent, default to first student of this family
+            user = get_active_student(user_info['email'])
+            if user and user.get('student_emails'):
+                student_id = user['student_emails'][0]
     
     logger.info(f"Processing request for student_id: {student_id}")
     
@@ -285,7 +290,9 @@ async def aura_route(req: AuraRequest, request: Request):
             return result
         except Exception as e:
             logger.error(f"Orchestrator failed: {e}")
-            return {"error": f"Orchestrator failed: {str(e)}"}
+            import traceback
+            traceback.print_exc()
+            return {"error": f"Orchestrator failed: {str(e)}", "trace": traceback.format_exc()}
     
     # Guided Learning (photo + voice)
     if req.role == "student" and req.action == "guided_hint":
@@ -358,8 +365,9 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     logger.info("🚀 Starting Riva AI FastAPI Server with Observability...")
-    logger.info("📍 Listening on http://localhost:8000")
-    logger.info("📖 API docs: http://localhost:8000/docs")
-    logger.info("📊 Metrics: http://localhost:8000/metrics")
-    logger.info("🔗 Next.js frontend should connect to http://localhost:8000/aura")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"📍 Listening on http://0.0.0.0:{port}")
+    logger.info(f"📖 API docs: http://0.0.0.0:{port}/docs")
+    logger.info(f"📊 Metrics: http://0.0.0.0:{port}/metrics")
+    logger.info(f"🔗 Next.js frontend should connect to http://0.0.0.0:{port}/aura")
+    uvicorn.run(app, host="0.0.0.0", port=port)

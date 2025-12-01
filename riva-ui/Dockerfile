@@ -28,6 +28,11 @@ ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SEN
 ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
 
 # Build the application
+RUN echo "DEBUG: Checking Build Environment..."
+RUN printenv | grep NEXT_PUBLIC || echo "No NEXT_PUBLIC vars found"
+
+# Ensure no stale cache
+RUN rm -rf .next
 RUN npm run build
 
 # Expose port
