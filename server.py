@@ -3,7 +3,7 @@ FastAPI server for Riva AI - With Observability.
 Handles student dashboard, parent summary, and guided learning requests.
 """
 import time
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -247,8 +247,34 @@ async def verify_request_token(request: Request, required_role: str = None, toke
 
 from fastapi import HTTPException
 
-@app.post("/aura")
-async def aura_route(req: AuraRequest, request: Request):
+def background_dashboard_refresh(student_id: str):
+    """
+    Background task to run the orchestrator and save results to Firestore.
+    """
+    try:
+        logger.info(f"Starting background refresh for {student_id}")
+        # Run orchestrator
+        result = run_aura_orchestrator(student_id)
+        
+        # Save result
+        save_user(student_id, {
+            "dashboard_cache": result,
+            "dashboard_status": "completed",
+            "dashboard_updated_at": "now" # In real app use server timestamp
+        })
+        logger.info(f"Background refresh completed for {student_id}")
+    except Exception as e:
+        logger.error(f"Background refresh failed for {student_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        save_user(student_id, {
+            "dashboard_status": "error",
+            "dashboard_error": str(e)
+        })
+
+
+@app.post("/api/aura")
+async def aura_route(req: AuraRequest, request: Request, background_tasks: BackgroundTasks):
     """
     Main Aura endpoint that handles all requests from Next.js frontend.
     """
@@ -283,16 +309,40 @@ async def aura_route(req: AuraRequest, request: Request):
     if not student_id:
          return {"error": "No student configured. Please complete onboarding."}
 
-    # Student Dashboard
+    # Student Dashboard - Async Start
+    if req.role == "student" and req.action == "start_dashboard_refresh":
+        # Set status to processing
+        save_user(student_id, {"dashboard_status": "processing"})
+        # Add background task
+        background_tasks.add_task(background_dashboard_refresh, student_id)
+        return {"status": "started"}
+
+    # Student Dashboard - Check Status / Get Data
     if req.role == "student" and req.action == "get_dashboard":
-        try:
-            result = run_aura_orchestrator(student_id)
-            return result
-        except Exception as e:
-            logger.error(f"Orchestrator failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"error": f"Orchestrator failed: {str(e)}", "trace": traceback.format_exc()}
+        user = get_active_student(student_id)
+        if not user:
+             return {"error": "User not found"}
+             
+        status = user.get("dashboard_status")
+        
+        if status == "processing":
+             return {"status": "processing"}
+        elif status == "completed":
+             # Return cached data + status
+             data = user.get("dashboard_cache", {})
+             data["status"] = "completed"
+             return data
+        elif status == "error":
+             return {"status": "error", "error": user.get("dashboard_error")}
+        else:
+             # Not started yet
+             return {"status": "not_started"}
+    
+    # Legacy Sync Call (Optional: keep for fallback or remove?)
+    # Keeping it removed/replaced by async flow logic above.
+    # If client sends "get_dashboard" without start, it will hit the logic above 
+    # and return "not_started" or old cache.
+
     
     # Guided Learning (photo + voice)
     if req.role == "student" and req.action == "guided_hint":
@@ -354,7 +404,7 @@ async def root():
         "version": "2.0.0",
         "description": "Google ADK with Observability",
         "endpoints": {
-            "/aura": "Main agent endpoint (POST)",
+            "/api/aura": "Main agent endpoint (POST)",
             "/health": "Health check (GET)",
             "/metrics": "Prometheus metrics (GET)",
             "/docs": "API documentation (GET)"
@@ -369,5 +419,5 @@ if __name__ == "__main__":
     logger.info(f"📍 Listening on http://0.0.0.0:{port}")
     logger.info(f"📖 API docs: http://0.0.0.0:{port}/docs")
     logger.info(f"📊 Metrics: http://0.0.0.0:{port}/metrics")
-    logger.info(f"🔗 Next.js frontend should connect to http://0.0.0.0:{port}/aura")
+    logger.info(f"🔗 Next.js frontend should connect to http://0.0.0.0:{port}/api/aura")
     uvicorn.run(app, host="0.0.0.0", port=port)

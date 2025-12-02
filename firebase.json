@@ -8,6 +8,20 @@
         ],
         "rewrites": [
             {
+                "source": "/aura",
+                "run": {
+                    "serviceId": "riva-backend",
+                    "region": "us-west2"
+                }
+            },
+            {
+                "source": "/api/**",
+                "run": {
+                    "serviceId": "riva-backend",
+                    "region": "us-west2"
+                }
+            },
+            {
                 "source": "**",
                 "run": {
                     "serviceId": "riva-frontend",

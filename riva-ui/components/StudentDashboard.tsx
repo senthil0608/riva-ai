@@ -87,9 +87,10 @@ export default function StudentDashboard() {
 
         setLoading(true);
         setError(null);
+
         try {
-            // Set a longer timeout for the fetch if possible, or handle the wait
-            const res = await fetch("/api/aura", {
+            // Step 1: Start the refresh job
+            const startRes = await fetch("/api/aura", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -98,31 +99,79 @@ export default function StudentDashboard() {
                 },
                 body: JSON.stringify({
                     role: "student",
-                    action: "get_dashboard",
+                    action: "start_dashboard_refresh",
                     studentId,
                     auth_token: userToken,
                 }),
             });
 
-            if (!res.ok) {
-                throw new Error(`Server responded with ${res.status}`);
-            }
+            if (!startRes.ok) throw new Error("Failed to start dashboard refresh");
 
-            const json = await res.json();
-            if (json.error) {
-                console.error(json.error);
-                if (json.error.includes("Access denied") || json.error.includes("Invalid token")) {
-                    router.push("/");
-                } else {
-                    setError(json.error);
+            // Step 2: Poll for results
+            const pollInterval = 3000; // 3 seconds
+            const maxAttempts = 40; // 2 minutes timeout
+            let attempts = 0;
+
+            const poll = async () => {
+                if (attempts >= maxAttempts) {
+                    setError("Dashboard analysis timed out. Please try again later.");
+                    setLoading(false);
+                    return;
                 }
-            } else {
-                setData(json);
-            }
+
+                attempts++;
+
+                try {
+                    const res = await fetch("/api/aura", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${userToken}`,
+                            "X-Authorization": `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            role: "student",
+                            action: "get_dashboard",
+                            studentId,
+                            auth_token: userToken,
+                        }),
+                    });
+
+                    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+
+                    const json = await res.json();
+
+                    if (json.status === "processing") {
+                        // Keep waiting
+                        setTimeout(poll, pollInterval);
+                    } else if (json.status === "completed") {
+                        // Done!
+                        setData(json);
+                        setLoading(false);
+                    } else if (json.status === "error") {
+                        setError(json.error || "An error occurred during analysis.");
+                        setLoading(false);
+                    } else if (json.status === "not_started") {
+                        // Should not happen if we just started, but retry
+                        setTimeout(poll, pollInterval);
+                    } else {
+                        // Fallback for unexpected response
+                        setError("Received invalid response from server.");
+                        setLoading(false);
+                    }
+                } catch (e) {
+                    console.error("Polling error:", e);
+                    // Retry on network error
+                    setTimeout(poll, pollInterval);
+                }
+            };
+
+            // Start polling
+            poll();
+
         } catch (err) {
             console.error("Failed to fetch Aura data", err);
             setError("Failed to load dashboard. The server might be busy analyzing your schedule.");
-        } finally {
             setLoading(false);
         }
     };
@@ -139,7 +188,7 @@ export default function StudentDashboard() {
         setAuraResponse(null);
         setLastQuery(message);
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/aura`, {
+            const res = await fetch("/api/aura", {
                 method: 'POST',
                 headers: {
                     "Content-Type": "application/json",

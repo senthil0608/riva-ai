@@ -6,11 +6,11 @@
 set -e
 
 PROJECT_ID=$1
-REGION=${2:-us-central1}
+REGION=${2:-us-west2}
 
 if [ -z "$PROJECT_ID" ]; then
     echo "Usage: ./deploy.sh [PROJECT_ID] [REGION]"
-    echo "Example: ./deploy.sh riva-ai-dev us-central1"
+    echo "Example: ./deploy.sh riva-ai-dev us-west2"
     exit 1
 fi
 
@@ -118,8 +118,7 @@ gcloud run deploy riva-frontend \
     --platform managed \
     --region $REGION \
     --allow-unauthenticated \
-    --set-env-vars NEXT_PUBLIC_API_URL=$BACKEND_URL \
-    --set-env-vars AURA_BACKEND_URL=$BACKEND_URL/aura
+    --set-env-vars NEXT_PUBLIC_API_URL=$BACKEND_URL
 
 # Get Frontend URL
 FRONTEND_URL=$(gcloud run services describe riva-frontend --platform managed --region $REGION --format 'value(status.url)')
