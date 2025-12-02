@@ -18,6 +18,10 @@ def run_skill_mastery(student_id: str) -> Dict[str, Any]:
     Analyze student skill levels across subjects.
     Fallback function when ADK not available.
     
+    Currently, this fetches the 'skill_profile' stored in the user's Firestore document.
+    In a full implementation, this would use an LLM to analyze graded assignments
+    and feedback to dynamically update mastery levels.
+    
     Args:
         student_id: The student's ID
         

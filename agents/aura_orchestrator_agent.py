@@ -29,21 +29,26 @@ def run_aura_orchestrator(student_id: str) -> Dict[str, Any]:
     logger.info(f"Orchestrator called for student: {student_id}")
     
     # 1. Get assignments
+    # Syncs with Google Classroom to get the latest coursework.
     classroom_result = run_classroom_sync(student_id)
     assignments = classroom_result["assignments"]
     print(f"[Aura] Retrieved {len(assignments)} assignments")
     
     # 2. Get skill profile
+    # Analyzes past performance to determine mastery levels (e.g., "struggling", "mastered").
     skill_result = run_skill_mastery(student_id)
     skill_profile = skill_result["skill_profile"]
     print(f"[Aura] Skill profile: {list(skill_profile.keys())}")
     
     # 3. Create daily plan
+    # Uses the assignments and skill profile to generate a prioritized schedule.
+    # This step involves calling the Daily Planner Agent, which may use LLMs for smart prioritization.
     planner_result = run_daily_planner(student_id, assignments, skill_profile)
     daily_plan = planner_result["daily_plan"]
     print(f"[Aura] Created plan with {len(daily_plan)} tasks")
     
     # 4. Generate parent summary
+    # Synthesizes the plan and assignments into a digest for parents.
     parent_result = run_parent_insight(student_id, assignments, daily_plan, skill_profile)
     
     # Use prioritized assignments if available, otherwise fallback to original

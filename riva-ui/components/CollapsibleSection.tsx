@@ -9,6 +9,12 @@ interface CollapsibleSectionProps {
 }
 
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, children, defaultExpanded = false, count }) => {
+    /**
+     * CollapsibleSection Component
+     * 
+     * A reusable UI component for sections that can be expanded/collapsed.
+     * Used in the dashboard to organize content like "Past Due" or "No Due Date".
+     */
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
     return (

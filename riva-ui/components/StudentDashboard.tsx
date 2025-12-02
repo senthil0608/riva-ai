@@ -82,6 +82,12 @@ export default function StudentDashboard() {
         initAuth();
     }, [router]);
 
+    /**
+     * Fetches dashboard data using an Async "Start -> Poll" pattern.
+     * This avoids 60s timeouts on Firebase Hosting by breaking the operation into:
+     * 1. Triggering the job.
+     * 2. Polling for completion.
+     */
     const fetchData = async () => {
         if (!studentId || !userToken) return;
 
@@ -90,6 +96,7 @@ export default function StudentDashboard() {
 
         try {
             // Step 1: Start the refresh job
+            // We tell the backend to start processing in the background.
             const startRes = await fetch("/api/aura", {
                 method: "POST",
                 headers: {
@@ -108,8 +115,9 @@ export default function StudentDashboard() {
             if (!startRes.ok) throw new Error("Failed to start dashboard refresh");
 
             // Step 2: Poll for results
+            // We check the status every 3 seconds until it's 'completed' or times out.
             const pollInterval = 3000; // 3 seconds
-            const maxAttempts = 40; // 2 minutes timeout
+            const maxAttempts = 40; // 2 minutes timeout (40 * 3s = 120s)
             let attempts = 0;
 
             const poll = async () => {
@@ -122,6 +130,7 @@ export default function StudentDashboard() {
                 attempts++;
 
                 try {
+                    // Check status
                     const res = await fetch("/api/aura", {
                         method: "POST",
                         headers: {
@@ -141,18 +150,20 @@ export default function StudentDashboard() {
 
                     const json = await res.json();
 
+                    // Handle different statuses
                     if (json.status === "processing") {
-                        // Keep waiting
+                        // Still working... wait and try again
                         setTimeout(poll, pollInterval);
                     } else if (json.status === "completed") {
-                        // Done!
+                        // Success! Render the data.
                         setData(json);
                         setLoading(false);
                     } else if (json.status === "error") {
+                        // Backend reported an error
                         setError(json.error || "An error occurred during analysis.");
                         setLoading(false);
                     } else if (json.status === "not_started") {
-                        // Should not happen if we just started, but retry
+                        // Should not happen if we just started, but retry just in case
                         setTimeout(poll, pollInterval);
                     } else {
                         // Fallback for unexpected response
@@ -161,12 +172,12 @@ export default function StudentDashboard() {
                     }
                 } catch (e) {
                     console.error("Polling error:", e);
-                    // Retry on network error
+                    // Retry on network error (e.g. temporary glitch)
                     setTimeout(poll, pollInterval);
                 }
             };
 
-            // Start polling
+            // Kick off the polling loop
             poll();
 
         } catch (err) {

@@ -13,6 +13,15 @@ const SUGGESTIONS = [
 ];
 
 const AuraInput: React.FC<AuraInputProps> = ({ onSend, isProcessing }) => {
+    /**
+     * AuraInput Component
+     * 
+     * A chat-like input field for interacting with the Aura agent.
+     * Includes:
+     * - Text input with send button
+     * - Quick suggestion chips for common queries
+     * - Loading state handling
+     */
     const [input, setInput] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {

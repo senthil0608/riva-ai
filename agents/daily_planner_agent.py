@@ -85,9 +85,10 @@ def run_daily_planner(
             print(f"Error calling MCP tool: {e}")
             slots = []
     else:
-        # Fallback to direct call
+        # Fallback to direct call if MCP is not available (e.g. in some container environments)
         print("MCP not available, calling tool directly.")
         try:
+            # Directly invoke the logic to find free time slots in the student's calendar
             slots = get_available_time_slots(student_id)
         except Exception as e:
             print(f"Error calling tool directly: {e}")
@@ -129,6 +130,12 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
     """
     Prioritize assignments using Gemini LLM based on complexity and due date.
     
+    This function uses a Generative AI model to re-order the assignments.
+    It considers:
+    1. Urgency (Due date)
+    2. Complexity (Subject difficulty)
+    3. Student's current schedule (Calendar events)
+    
     Args:
         assignments: List of assignments
         student_id: Student ID
@@ -136,7 +143,7 @@ def prioritize_assignments(assignments: List[Dict[str, Any]], student_id: str) -
     Returns:
         List of assignments sorted by priority
     """
-    # Baseline sort by due date (soonest first)
+    # Baseline sort by due date (soonest first) as a safe default
     assignments.sort(key=lambda x: x.get('due') or '9999-99-99')
     
     try:

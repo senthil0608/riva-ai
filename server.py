@@ -250,13 +250,20 @@ from fastapi import HTTPException
 def background_dashboard_refresh(student_id: str):
     """
     Background task to run the orchestrator and save results to Firestore.
+    
+    This function is designed to run asynchronously outside the request-response cycle
+    to avoid timeouts (specifically Firebase Hosting's 60s limit).
+    
+    Args:
+        student_id (str): The email/ID of the student to generate the dashboard for.
     """
     try:
         logger.info(f"Starting background refresh for {student_id}")
-        # Run orchestrator
+        # Run orchestrator - this is the long-running operation
         result = run_aura_orchestrator(student_id)
         
-        # Save result
+        # Save result to Firestore so the frontend can retrieve it later
+        # We update the status to 'completed' and store the result in 'dashboard_cache'
         save_user(student_id, {
             "dashboard_cache": result,
             "dashboard_status": "completed",
@@ -264,6 +271,7 @@ def background_dashboard_refresh(student_id: str):
         })
         logger.info(f"Background refresh completed for {student_id}")
     except Exception as e:
+        # Handle failures gracefully by updating status to 'error'
         logger.error(f"Background refresh failed for {student_id}: {e}")
         import traceback
         traceback.print_exc()
@@ -310,14 +318,20 @@ async def aura_route(req: AuraRequest, request: Request, background_tasks: Backg
          return {"error": "No student configured. Please complete onboarding."}
 
     # Student Dashboard - Async Start
+    # This block handles the initiation of the long-running dashboard generation.
     if req.role == "student" and req.action == "start_dashboard_refresh":
-        # Set status to processing
+        # 1. Set status to 'processing' immediately so the frontend knows to wait.
         save_user(student_id, {"dashboard_status": "processing"})
-        # Add background task
+        
+        # 2. Add the heavy lifting to background tasks. 
+        # This allows the API to return immediately (preventing 502 timeouts).
         background_tasks.add_task(background_dashboard_refresh, student_id)
+        
+        # 3. Return 'started' status to the client.
         return {"status": "started"}
 
     # Student Dashboard - Check Status / Get Data
+    # This block is polled by the frontend to check if the background job is done.
     if req.role == "student" and req.action == "get_dashboard":
         user = get_active_student(student_id)
         if not user:
@@ -326,16 +340,18 @@ async def aura_route(req: AuraRequest, request: Request, background_tasks: Backg
         status = user.get("dashboard_status")
         
         if status == "processing":
+             # Job is still running
              return {"status": "processing"}
         elif status == "completed":
-             # Return cached data + status
+             # Job finished successfully. Return the cached data.
              data = user.get("dashboard_cache", {})
              data["status"] = "completed"
              return data
         elif status == "error":
+             # Job failed. Return the error message.
              return {"status": "error", "error": user.get("dashboard_error")}
         else:
-             # Not started yet
+             # Status is unknown or job hasn't started.
              return {"status": "not_started"}
     
     # Legacy Sync Call (Optional: keep for fallback or remove?)

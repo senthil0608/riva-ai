@@ -154,7 +154,7 @@ def list_assignments_for_student(student_id: str) -> List[Dict[str, Any]]:
                             "subject": course_name,
                             "due": due_date or "No due date",
                             "description": item.get('description', ''),
-                            "state": state or item.get('state', 'PUBLISHED'),
+                            "state": state or item.get('state', 'PUBLISHED'), # e.g. TURNED_IN, RETURNED
                             "course_id": course_id
                         }
                         assignments.append(assignment)

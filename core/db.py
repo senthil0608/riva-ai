@@ -5,6 +5,7 @@ import os
 from core.observability import logger
 
 # Initialize Firebase
+# We check if the app is already initialized to avoid errors during hot-reloads or multiple imports.
 try:
     if not firebase_admin._apps:
         cred_path = os.getenv("FIREBASE_CREDENTIALS", "serviceAccountKey.json")
@@ -26,7 +27,16 @@ def get_db():
         return None
 
 def save_user(email: str, data: dict):
-    """Save or update user data in Firestore."""
+    """
+    Save or update user data in Firestore.
+    
+    Uses 'merge=True' to ensure we don't overwrite existing fields (like 'student_emails')
+    when just updating status or cache.
+    
+    Args:
+        email: The user's email (used as Document ID).
+        data: The dictionary of fields to update.
+    """
     db = get_db()
     if not db:
         return False

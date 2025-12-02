@@ -23,6 +23,8 @@ def run_parent_insight(
     Generate a summary for parents.
     Fallback function when ADK not available.
     
+    Calculates a simple stress level based on the number of planned tasks.
+    
     Args:
         student_id: The student's ID
         assignments: List of assignments

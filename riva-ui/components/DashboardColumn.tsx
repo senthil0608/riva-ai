@@ -9,6 +9,12 @@ interface DashboardColumnProps {
 }
 
 const DashboardColumn: React.FC<DashboardColumnProps> = ({ title, children, className = '', icon, style }) => {
+    /**
+     * DashboardColumn Component
+     * 
+     * A structural component for the 3-column dashboard layout.
+     * Provides a consistent glassmorphic container with a header and scrollable body.
+     */
     return (
         <div
             className={`flex flex-col h-full bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden ${className}`}

@@ -14,7 +14,15 @@ SCOPES = [
 ]
 
 def get_flow(redirect_uri: str):
-    """Create OAuth flow instance."""
+    """
+    Create OAuth flow instance from client secrets.
+    
+    Args:
+        redirect_uri: The URI to redirect to after Google login (must match Console).
+        
+    Returns:
+        Flow object or None if credentials missing.
+    """
     creds_path = os.getenv("GOOGLE_CLASSROOM_CREDENTIALS", "credentials.json")
     if not os.path.exists(creds_path):
         logger.error(f"Credentials file not found at {creds_path}")
@@ -32,11 +40,22 @@ def get_flow(redirect_uri: str):
         return None
 
 def get_auth_url(redirect_uri: str, login_hint: str = None, state: str = None):
-    """Generate authentication URL."""
+    """
+    Generate the Google authentication URL for the user to visit.
+    
+    Args:
+        redirect_uri: Callback URL
+        login_hint: Email to pre-fill (optional)
+        state: State string to prevent CSRF (optional)
+        
+    Returns:
+        Tuple of (authorization_url, state)
+    """
     flow = get_flow(redirect_uri)
     if not flow:
         return None
     
+    # 'offline' access_type is required to get a refresh token
     kwargs = {
         'access_type': 'offline',
         'include_granted_scopes': 'true',

@@ -84,66 +84,45 @@ def get_available_time_slots(student_id: Optional[str] = None) -> List[str]:
             slot_end = current_slot + datetime.timedelta(minutes=30)
             is_conflict = False
             
+            # Check for conflicts with existing events
             for event in events:
                 # Parse event times (handling full day events which have 'date' instead of 'dateTime')
                 start_str = event['start'].get('dateTime') or event['start'].get('date')
                 end_str = event['end'].get('dateTime') or event['end'].get('date')
                 
-                # Simple ISO parse (ignoring timezone complexity for MVP - assuming local/Z match enough)
-                # In production, use dateutil.parser
                 try:
-                    # Handle "2025-11-29T16:00:00-08:00" format manually if needed, 
-                    # but for comparison we can just compare ISO strings if in same timezone,
-                    # or better: convert everything to naive objects if possible or aware.
-                    # Let's try simple string comparison for full day, and naive for times if possible.
-                    
-                    # Actually, let's just use the strings from API which are ISO.
-                    # We need to convert our slot to ISO for comparison.
-                    # This is tricky without timezone. 
-                    # Let's assume the API returns 'dateTime' with offset.
+                    # Skip if parsing fails
                     pass 
                 except:
                     continue
 
-                # ROBUST CHECK:
-                # We will check if the event overlaps with [current_slot, slot_end]
-                # We need to convert event times to datetime objects.
-                # Since we don't have easy timezone lib here, we'll rely on the fact that
-                # we are looking for "busy" times.
-                
-                # Hack for MVP: Check if event *description* or title implies busy? No, use time.
-                # Let's use the 'transparency' field? 'opaque' means busy.
+                # Check transparency: 'transparent' means the user is free (e.g. "Working elsewhere")
                 if event.get('transparency') == 'transparent':
-                    continue # Event is "free"
+                    continue 
                 
-                # Parse event start/end
-                # If it's a date (all day), it blocks the whole day usually?
+                # Check overlap logic
                 if 'date' in event['start']:
-                     # All day event - assume busy for now
-                     # Check if it covers today
+                     # All day event - assume busy for the whole day
                      e_start = event['start']['date']
                      if e_start <= now.strftime('%Y-%m-%d'):
                          is_conflict = True
                          break
                 elif 'dateTime' in event['start']:
-                    # Time event
-                    # We need to parse "2025-11-29T16:00:00-08:00"
-                    # We will strip timezone for comparison with our naive 'current_slot' 
-                    # (assuming system time is same timezone as calendar - risky but MVP)
-                    e_start_str = event['start']['dateTime'][:19] # Strip offset
+                    # Time-based event
+                    # We strip timezone offset for simple comparison (assuming local time consistency)
+                    e_start_str = event['start']['dateTime'][:19] 
                     e_end_str = event['end']['dateTime'][:19]
                     
                     e_start_dt = datetime.datetime.fromisoformat(e_start_str)
                     e_end_dt = datetime.datetime.fromisoformat(e_end_str)
                     
-                    # Check overlap
-                    # Overlap if: (StartA < EndB) and (EndA > StartB)
+                    # Overlap condition: (StartA < EndB) and (EndA > StartB)
                     if current_slot < e_end_dt and slot_end > e_start_dt:
                         is_conflict = True
                         break
             
             if not is_conflict:
-                # Format: "4:00 PM - 4:30 PM"
+                # Slot is free, add to list
                 start_fmt = current_slot.strftime("%-I:%M %p")
                 end_fmt = slot_end.strftime("%-I:%M %p")
                 available_slots.append(f"{start_fmt} - {end_fmt}")

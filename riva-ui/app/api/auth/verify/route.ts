@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+    /**
+     * Verify Token Proxy
+     * 
+     * Proxies the token verification request from the frontend to the Python backend.
+     * This is necessary to keep the backend URL hidden/internal and avoid CORS issues
+     * if the backend is on a different domain (though currently they share a domain via rewrites).
+     */
     try {
         const body = await request.json();
         const authHeader = request.headers.get("authorization");

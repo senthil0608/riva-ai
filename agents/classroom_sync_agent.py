@@ -35,6 +35,12 @@ def run_classroom_sync(student_id: str) -> Dict[str, Any]:
     """
     Fetch assignments from Google Classroom for all configured student accounts.
     
+    This agent:
+    1. Retrieves all linked student emails for the user.
+    2. Iterates through each email.
+    3. Calls the Google Classroom tool to fetch coursework.
+    4. Aggregates all assignments into a single list.
+    
     Args:
         student_id: Primary student ID (used for logging context)
         
@@ -57,6 +63,7 @@ def run_classroom_sync(student_id: str) -> Dict[str, Any]:
             try:
                 # TEMPORARY: Direct call is safer given we just updated the tool signature
                 # and we know MCP is currently falling back anyway.
+                # In the future, this should be an async MCP call for better isolation.
                 assignments = list_assignments_for_student(email)
                 all_assignments.extend(assignments)
                 
